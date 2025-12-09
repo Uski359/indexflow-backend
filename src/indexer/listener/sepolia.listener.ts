@@ -1,13 +1,15 @@
 import '../env.js';
 
-import { Contract, JsonRpcProvider, getAddress, isError, type EventLog } from 'ethers';
+import { Interface, JsonRpcProvider, getAddress, id, isError, type Log } from 'ethers';
 import { MongoClient, type Collection } from 'mongodb';
 import pino from 'pino';
 
 import { TransferSchema, type Transfer } from '../../schema/transferSchema.js';
 
 const ERC20_ABI = ['event Transfer(address indexed from, address indexed to, uint256 value)'];
+const TRANSFER_TOPIC = id('Transfer(address,address,uint256)');
 const DEFAULT_TOKEN_ADDRESS = '0x93b95f6956330f4a56e7a94457a7e597a7340e61';
+const POLL_INTERVAL_MS = Number(process.env.SEPOLIA_POLL_INTERVAL_MS ?? 5000);
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -204,6 +206,49 @@ class TransferRepository {
   }
 }
 
+type StateDoc = { _id: string; chainId: string; lastProcessedBlock: number };
+
+class IndexStateRepository {
+  private client: MongoClient;
+  private collection?: Collection<StateDoc>;
+  private connected = false;
+
+  constructor(
+    private readonly uri: string,
+    private readonly dbName: string,
+    private readonly log = logger
+  ) {
+    this.client = new MongoClient(uri);
+  }
+
+  private async getCollection(): Promise<Collection<StateDoc>> {
+    if (!this.connected) {
+      await this.client.connect();
+      this.collection = this.client.db(this.dbName).collection<StateDoc>('indexer_state');
+      await this.collection.createIndex({ chainId: 1 }, { unique: true });
+      this.connected = true;
+      this.log.info({ db: this.dbName }, 'Connected to MongoDB for indexer state');
+    }
+
+    return this.collection!;
+  }
+
+  async getLastProcessedBlock(chainId: string): Promise<number | null> {
+    const collection = await this.getCollection();
+    const doc = await collection.findOne({ chainId });
+    return doc?.lastProcessedBlock ?? null;
+  }
+
+  async setLastProcessedBlock(chainId: string, block: number): Promise<void> {
+    const collection = await this.getCollection();
+    await collection.updateOne(
+      { chainId },
+      { $set: { chainId, lastProcessedBlock: block } },
+      { upsert: true }
+    );
+  }
+}
+
 const loadRpcUrls = (): string[] =>
   [process.env.SEPOLIA_RPC_1, process.env.SEPOLIA_RPC_2, process.env.SEPOLIA_RPC_3]
     .filter((url): url is string => typeof url === 'string' && url.length > 0)
@@ -250,89 +295,119 @@ export const startListener = async (): Promise<void> => {
       .then((resolved) => resolved ?? '11155111');
   }
 
-  let contract: Contract | null = null;
+  const interfaceInstance = new Interface(ERC20_ABI);
+  const stateRepo = new IndexStateRepository(mongoUri, mongoDbName, logger);
+  let lastProcessedBlock =
+    (await stateRepo.getLastProcessedBlock(chainId!)) ??
+    Number(process.env.SEPOLIA_START_BLOCK ?? 0);
 
-  const handleTransfer = async (
-    from: string,
-    to: string,
-    value: bigint,
-    event: EventLog
-  ): Promise<void> => {
+  if (lastProcessedBlock === 0) {
+    const current = await multiProvider.callWithRetry('getBlockNumber:init', (p) =>
+      p.getBlockNumber()
+    );
+    lastProcessedBlock = Number(current) - 1;
+    await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock);
+  }
+
+  logger.info(
+    {
+      rpc: obfuscateRpcUrl(multiProvider.getCurrentRpc()),
+      token: tokenAddress,
+      startBlock: lastProcessedBlock + 1,
+      pollIntervalMs: POLL_INTERVAL_MS
+    },
+    'Starting polling indexer loop'
+  );
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
     try {
-      const blockNumber = Number(event.blockNumber);
-      const txHash = event.transactionHash;
-
-      const block = await multiProvider
-        .callWithRetry('getBlock', (provider) => provider.getBlock(blockNumber))
-        .catch((error: unknown) => {
-          logger.error(
-            { err: error, blockNumber, txHash },
-            'Failed to fetch block for timestamp; skipping event'
-          );
-          return null;
-        });
-
-      if (!block) {
-        return;
-      }
-
-      const transfer: Transfer = {
-        chainId: chainId!,
-        blockNumber,
-        txHash,
-        from: getAddress(from),
-        to: getAddress(to),
-        amount: value.toString(),
-        timestamp: Number(block.timestamp)
-      };
-
-      const parsed = TransferSchema.safeParse(transfer);
-      if (!parsed.success) {
-        logger.error(
-          { txHash, blockNumber, issues: parsed.error.issues },
-          'Transfer validation failed'
-        );
-        return;
-      }
-
-      await repository.insert(parsed.data);
-      logger.info(
-        {
-          txHash,
-          blockNumber,
-          from: parsed.data.from,
-          to: parsed.data.to,
-          amount: parsed.data.amount
-        },
-        'Stored transfer event'
+      const currentBlock = Number(
+        await multiProvider.callWithRetry('getBlockNumber', (provider) => provider.getBlockNumber())
       );
+
+      if (currentBlock <= lastProcessedBlock) {
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      const fromBlock = lastProcessedBlock + 1;
+      const toBlock = currentBlock;
+
+      const logs = await multiProvider.callWithRetry('getLogs', (provider) =>
+        provider.getLogs({
+          address: tokenAddress,
+          fromBlock,
+          toBlock,
+          topics: [TRANSFER_TOPIC]
+        })
+      );
+
+      logger.info(
+        { fromBlock, toBlock, logs: logs.length },
+        'Fetched logs for range'
+      );
+
+      for (const log of logs) {
+        try {
+          const parsed = interfaceInstance.parseLog(log);
+          if (parsed?.name !== 'Transfer') {
+            continue;
+          }
+
+          const from = getAddress(parsed.args.from);
+          const to = getAddress(parsed.args.to);
+          const value = BigInt(parsed.args.value);
+          const blockNumber = Number(log.blockNumber);
+          const txHash = log.transactionHash;
+
+          const block = await multiProvider.callWithRetry('getBlock', (provider) =>
+            provider.getBlock(blockNumber)
+          );
+
+          const transfer: Transfer = {
+            chainId: chainId!,
+            blockNumber,
+            txHash,
+            from,
+            to,
+            amount: value.toString(),
+            timestamp: Number(block.timestamp)
+          };
+
+          const validation = TransferSchema.safeParse(transfer);
+          if (!validation.success) {
+            logger.error(
+              { txHash, blockNumber, issues: validation.error.issues },
+              'Transfer validation failed'
+            );
+            continue;
+          }
+
+          await repository.insert(validation.data);
+          logger.info(
+            {
+              txHash,
+              blockNumber,
+              from,
+              to,
+              amount: validation.data.amount
+            },
+            'Stored transfer event'
+          );
+        } catch (error) {
+          logger.error({ err: error, log }, 'Failed to process transfer log');
+        }
+      }
+
+      lastProcessedBlock = toBlock;
+      await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock);
     } catch (error) {
-      logger.error({ err: error }, 'Unhandled error while processing transfer event');
+      logger.error({ err: error }, 'Indexer loop error');
     }
-  };
 
-  const bindListener = (provider: JsonRpcProvider): void => {
-    if (contract) {
-      contract.removeAllListeners();
-    }
-    contract = new Contract(tokenAddress, ERC20_ABI, provider);
-    contract.on('Transfer', handleTransfer);
-
-    logger.info(
-      { rpc: obfuscateRpcUrl(multiProvider.getCurrentRpc()), token: tokenAddress },
-      'Listening for Transfer events'
-    );
-  };
-
-  multiProvider.onProviderChange((provider) => {
-    logger.info(
-      { rpc: obfuscateRpcUrl(multiProvider.getCurrentRpc()) },
-      'Rebinding contract listener after RPC rotation'
-    );
-    bindListener(provider);
-  });
-
-  bindListener(multiProvider.getProvider());
+    await sleep(POLL_INTERVAL_MS);
+  }
 };
 
 void startListener().catch((error: unknown) => {
