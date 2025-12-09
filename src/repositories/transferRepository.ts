@@ -1,5 +1,5 @@
 import { MongoClient } from "mongodb";
-import { Transfer, TransferSchema } from "../schema/transferSchema.js";
+import { Transfer } from "../schema/transferSchema.js";
 
 export class TransferRepository {
   private client: MongoClient;
@@ -16,9 +16,7 @@ export class TransferRepository {
   }
 
   async ensureConnected() {
-    if (this.hasConnected) {
-      return;
-    }
+    if (this.hasConnected) return;
     await this.client.connect();
     this.hasConnected = true;
   }
@@ -32,7 +30,8 @@ export class TransferRepository {
       .limit(count)
       .toArray();
 
-    return docs.map((d) => TransferSchema.parse(d));
+    // IMPORTANT: DO NOT validate response with Zod!
+    return docs.map(({ _id, ...rest }) => rest as Transfer);
   }
 }
 
