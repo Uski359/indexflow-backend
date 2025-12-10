@@ -107,6 +107,14 @@ Website: https://indexflow.network
 
 Founder: Umut Eymen Aycan
 
+### Base Support
+IndexFlow is chain-agnostic and will support Base immediately after grant approval.
+
+**Planned rollout:**
+- **Phase 1 (48 hours):** ERC-20 transfers + native ETH transfers  
+- **Phase 2:** General-purpose event indexing for any Base contract  
+- **Phase 3:** GraphQL API + TS SDK for Base builders  
+
 ⭐ Summary
 
 IndexFlow provides Polygon with a lightweight, fast, and developer-friendly real-time data layer — improving dApp reliability, analytics, and development speed across the ecosystem.
