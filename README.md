@@ -115,6 +115,15 @@ IndexFlow is chain-agnostic and will support Base immediately after grant approv
 - **Phase 2:** General-purpose event indexing for any Base contract  
 - **Phase 3:** GraphQL API + TS SDK for Base builders  
 
+### Supported Networks & Roadmap
+
+IndexFlow is designed as a modular multi-chain indexer.
+
+- ✅ Live on Sepolia (Ethereum testnet)
+- 🟣 Polygon PoS & Polygon zkEVM — prioritized for mainnet deployment
+- 🔵 Base — integration planned immediately after grant approval
+- ⏳ Additional EVM chains coming soon
+- 
 ⭐ Summary
 
-IndexFlow provides Polygon with a lightweight, fast, and developer-friendly real-time data layer — improving dApp reliability, analytics, and development speed across the ecosystem.
+IndexFlow is a real-time, modular indexing pipeline for EVM chains, built to offer instant access to on-chain data through simple APIs. Live on testnet, ready for Polygon & Base integration.
