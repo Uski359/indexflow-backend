@@ -59,6 +59,7 @@ app.get('/', (_req, res) => {
 
 app.use('/api/transfers', transferRoutes);
 app.use('/transfers', transferRoutes);
+app.use('/api/faucet', faucetRoute);
 app.use('/faucet', faucetRoute);
 app.use('/api', routes);
 app.use(notFoundHandler);
