@@ -24,6 +24,7 @@ import {
 } from '../parsers/contributions.js';
 import { getProvider, obfuscateRpcUrl, type RateLimitedProvider } from '../services/provider.js';
 import { withRetry } from '../utils/retry.js';
+import { loadLastProcessedBlock, persistLastProcessedBlock } from '../db/state.js';
 
 type ContractTarget = { address: string; deployBlock: number };
 
@@ -88,7 +89,44 @@ const fetchLogs = async (
     return [] as Log[];
   });
 
-export const runListener = async (chainId: string): Promise<void> => {
+const POLL_INTERVAL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_INTERVAL_MS ?? '5000'));
+const LISTENER_BATCH_SIZE = Math.max(1, Number(process.env.INDEXER_BATCH_SIZE ?? '25'));
+const REORG_DEPTH = Math.max(0, Number(process.env.REORG_DEPTH ?? '6'));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export interface BlockProcessor {
+  chain: ChainConfig & { tokenAddress: string; deployBlock: number };
+  provider: RateLimitedProvider;
+  startBlock: number;
+  stakingTarget: ContractTarget | null;
+  poiTarget: ContractTarget | null;
+  contributionTarget: ContractTarget | null;
+  processBlock: (blockNumber: number) => Promise<void>;
+}
+
+const resolveStartBlock = async (
+  chain: ChainConfig & { deployBlock: number },
+  provider: RateLimitedProvider
+): Promise<number> => {
+  const configuredStartRaw = process.env.START_BLOCK;
+  if (configuredStartRaw !== undefined) {
+    const configuredStart = Number(configuredStartRaw);
+    if (Number.isFinite(configuredStart) && configuredStart > 0) {
+      return Math.max(0, configuredStart);
+    }
+    const latest = await provider.getBlockNumber();
+    return Math.max(0, Number(latest));
+  }
+
+  if (chain.deployBlock !== null) {
+    return Math.max(0, chain.deployBlock);
+  }
+
+  const latest = await provider.getBlockNumber();
+  return Math.max(0, Number(latest));
+};
+
+export const createBlockProcessor = async (chainId: string): Promise<BlockProcessor> => {
   const chain = requireChainReady(chainId);
   const provider = getProvider(chainId);
 
@@ -104,16 +142,7 @@ export const runListener = async (chainId: string): Promise<void> => {
   const poiCollection = await getPoiEventsCollection();
   const contributionsCollection = await getContributionsCollection();
 
-  logger.info('Starting listener', {
-    chainId: chain.id,
-    network: chain.network,
-    rpc: obfuscateRpcUrl(provider.rpcUrl),
-    staking: stakingTarget?.address,
-    poi: poiTarget?.address,
-    contributions: contributionTarget?.address
-  });
-
-  provider.provider.on('block', async (blockNumber: number) => {
+  const processBlock = async (blockNumber: number): Promise<void> => {
     const block = await withRetry(
       () => provider.provider.getBlock(blockNumber),
       { taskName: `${chain.id}:getBlock:${blockNumber}`, logger }
@@ -310,9 +339,86 @@ export const runListener = async (chainId: string): Promise<void> => {
       poi: poiCount,
       contributions: contributionCount
     });
+  };
+
+  const startBlock = await resolveStartBlock(chain, provider);
+
+  return {
+    chain,
+    provider,
+    startBlock,
+    stakingTarget,
+    poiTarget,
+    contributionTarget,
+    processBlock
+  };
+};
+
+export const runListener = async (chainId: string): Promise<void> => {
+  const {
+    chain,
+    provider,
+    startBlock,
+    processBlock,
+    stakingTarget,
+    poiTarget,
+    contributionTarget
+  } = await createBlockProcessor(chainId);
+  const persisted = await loadLastProcessedBlock(chain.id);
+  let lastProcessedBlock = persisted ?? Math.max(0, startBlock - 1);
+
+  logger.info('Starting listener', {
+    chainId: chain.id,
+    network: chain.network,
+    rpc: obfuscateRpcUrl(provider.rpcUrl),
+    staking: stakingTarget?.address,
+    poi: poiTarget?.address,
+    contributions: contributionTarget?.address,
+    startBlock,
+    batchSize: LISTENER_BATCH_SIZE,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    reorgDepth: REORG_DEPTH
   });
 
   provider.provider.on('error', (error) => {
     logger.error('Provider emitted an error', { chainId: chain.id, err: error });
   });
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const latestBlock = await provider.getBlockNumber();
+    try {
+      await persistLastProcessedBlock(chain.id, lastProcessedBlock, latestBlock);
+    } catch (error) {
+      logger.error('Failed to refresh indexer state', { chainId: chain.id, err: error });
+    }
+
+    if (lastProcessedBlock >= latestBlock) {
+      await sleep(POLL_INTERVAL_MS);
+      continue;
+    }
+
+    const targetBlock = Math.min(latestBlock, lastProcessedBlock + LISTENER_BATCH_SIZE);
+    const fromBlock = Math.max(lastProcessedBlock - REORG_DEPTH, startBlock);
+
+    try {
+      for (let blockNumber = fromBlock; blockNumber <= targetBlock; blockNumber += 1) {
+        // Basic reorg safety by re-indexing last N blocks.
+        // eslint-disable-next-line no-await-in-loop
+        await processBlock(blockNumber);
+        lastProcessedBlock = blockNumber;
+      }
+
+      await persistLastProcessedBlock(chain.id, lastProcessedBlock, latestBlock);
+    } catch (error) {
+      logger.error('Listener batch failed', {
+        chainId: chain.id,
+        err: error,
+        fromBlock,
+        toBlock: targetBlock
+      });
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+  }
 };

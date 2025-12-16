@@ -1,4 +1,4 @@
-import type { Filter } from 'mongodb';
+import { MongoServerError, type Filter } from 'mongodb';
 
 import { logger } from '../logger.js';
 import { withRetry } from '../utils/retry.js';
@@ -6,6 +6,7 @@ import { getTransfersCollection, type TransferDocument } from './mongo.js';
 
 export interface TransferInput {
   chain: string;
+  chainId?: string;
   blockNumber: number;
   txHash: string;
   logIndex: number;
@@ -25,37 +26,75 @@ const normalizeTimestamp = (timestamp?: number | null): number => {
   return Math.round(isSeconds ? numeric * 1000 : numeric);
 };
 
+const isDuplicateKeyError = (error: unknown): boolean =>
+  error instanceof MongoServerError && error.code === 11000;
+
 export const saveTransfer = async (transfer: TransferInput): Promise<void> => {
   const transfers = await getTransfersCollection();
+  const chainId = transfer.chainId ?? transfer.chain;
   const filter: Filter<TransferDocument> = {
-    chain: transfer.chain,
     txHash: transfer.txHash,
-    logIndex: transfer.logIndex
+    $or: [
+      { chain: chainId, logIndex: transfer.logIndex },
+      { chainId, logIndex: transfer.logIndex },
+      { chain: chainId, logIndex: { $exists: false } },
+      { chainId, logIndex: { $exists: false } }
+    ]
   };
 
   const normalizedTimestamp = normalizeTimestamp(transfer.timestamp);
+  const overwritePayload = {
+    $set: {
+      chain: chainId,
+      chainId,
+      blockNumber: transfer.blockNumber,
+      block: transfer.blockNumber,
+      txHash: transfer.txHash,
+      logIndex: transfer.logIndex,
+      from: transfer.from,
+      to: transfer.to,
+      value: transfer.value,
+      timestamp: normalizedTimestamp
+    }
+  };
 
   await withRetry(
-    () =>
-      transfers.updateOne(
-        filter,
-        {
-          $set: {
-            chain: transfer.chain,
-            blockNumber: transfer.blockNumber,
-            block: transfer.blockNumber,
-            txHash: transfer.txHash,
-            logIndex: transfer.logIndex,
-            from: transfer.from,
-            to: transfer.to,
-            value: transfer.value,
-            timestamp: normalizedTimestamp
-          }
-        },
-        { upsert: true }
-      ),
+    async () => {
+      try {
+        await transfers.updateOne(
+          filter,
+          overwritePayload,
+          { upsert: true }
+        );
+      } catch (error) {
+        if (isDuplicateKeyError(error)) {
+          await transfers
+            .updateOne(filter, overwritePayload, { upsert: false })
+            .then((result) => {
+              if (result.matchedCount === 0) {
+                logger.debug('Duplicate transfer overwrite skipped; no match found', {
+                  chainId,
+                  txHash: transfer.txHash,
+                  logIndex: transfer.logIndex
+                });
+              }
+            })
+            .catch((updateError) => {
+              logger.error('Failed to overwrite duplicate transfer', {
+                chainId,
+                txHash: transfer.txHash,
+                logIndex: transfer.logIndex,
+                err: updateError
+              });
+              throw updateError;
+            });
+          return;
+        }
+        throw error;
+      }
+    },
     {
-      taskName: `mongo:transfers:${transfer.chain}:${transfer.txHash}:${transfer.logIndex}`,
+      taskName: `mongo:transfers:${chainId}:${transfer.txHash}:${transfer.logIndex}`,
       logger,
       baseDelayMs: 300
     }

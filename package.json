@@ -15,6 +15,7 @@
     "test": "vitest run",
     "migrate": "tsx scripts/runMigrations.ts",
     "test:watch": "vitest watch",
+    "indexer:backfill": "ts-node src/indexer/backfill.ts",
     "indexer:backfill:sepolia": "tsx src/indexer/backfill/sepolia.backfill.ts",
     "indexer:listener:sepolia": "tsx src/indexer/listener/sepolia.listener.ts",
     "indexer:backfill:polygon": "tsx src/indexer/backfill/polygon.backfill.ts",

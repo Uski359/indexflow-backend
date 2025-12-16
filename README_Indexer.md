@@ -56,3 +56,7 @@ Path alias `@indexer/*` is available via `tsconfig` for cleaner imports.
 - Run a targeted backfill: `npm run indexer:backfill:polygon` (or any chain id).
 - Start all listeners in parallel: `npm run indexer:listener:all`.
 - Logs are tagged per chain: backfill logs include `chainId`, `fromBlock`, `toBlock`, and counts; listener startup logs emit `chainId`, `network`, and a masked RPC URL. Failovers are WARN-level with the failing endpoint masked.
+
+## Validation notes
+- Reorg-safe reindex: set `REORG_DEPTH` (default `6`) and restart the listener; each poll replays the last N blocks before progressing.
+- Historical backfill: `npm run indexer:backfill -- --chain <id> --from <block> --to latest` (uses `indexer_state` so it can be stopped and resumed).
