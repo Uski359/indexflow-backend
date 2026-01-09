@@ -19,7 +19,15 @@ const token = new ethers.Contract(TOKEN_ADDRESS, tokenAbi, wallet);
 
 const walletCooldown = new Map<string, number>();
 const ipCooldown = new Map<string, number>();
-const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+const COOLDOWN_MS =
+  Number(process.env.FAUCET_COOLDOWN_MS) || 24 * 60 * 60 * 1000; // default 24h
+
+const DEV_BYPASS_WALLET =
+  process.env.FAUCET_DEV_BYPASS_WALLET?.toLowerCase();
+
+function remainingMs(last: number) {
+  return Math.max(0, COOLDOWN_MS - (Date.now() - last));
+}
 
 router.post("/", async (req, res) => {
   const { address } = req.body ?? {};
@@ -39,22 +47,41 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "Invalid address" });
   }
 
-  const now = Date.now();
+  const addr = address.toLowerCase();
 
-  if (walletCooldown.has(address) && now - walletCooldown.get(address)! < COOLDOWN_MS) {
-    return res.status(429).json({ error: "Address cooldown active" });
-  }
+  const isDevBypass =
+    DEV_BYPASS_WALLET && addr === DEV_BYPASS_WALLET;
 
-  if (ipCooldown.has(ip) && now - ipCooldown.get(ip)! < COOLDOWN_MS) {
-    return res.status(429).json({ error: "IP cooldown active" });
+  if (!isDevBypass) {
+    if (walletCooldown.has(addr)) {
+      const last = walletCooldown.get(addr)!;
+      const remain = remainingMs(last);
+      if (remain > 0) {
+        return res.status(429).json({
+          error: "Cooldown active",
+          remainingMs: remain,
+        });
+      }
+    }
+
+    if (ipCooldown.has(ip as string)) {
+      const last = ipCooldown.get(ip as string)!;
+      const remain = remainingMs(last);
+      if (remain > 0) {
+        return res.status(429).json({
+          error: "IP cooldown active",
+          remainingMs: remain,
+        });
+      }
+    }
   }
 
   try {
-    const tx = await token.transfer(address, FAUCET_AMOUNT);
+    const tx = await token.transfer(addr, FAUCET_AMOUNT);
     await tx.wait();
 
-    walletCooldown.set(address, now);
-    ipCooldown.set(ip, now);
+    walletCooldown.set(addr, Date.now());
+    ipCooldown.set(ip as string, Date.now());
 
     return res.json({ success: true, hash: tx.hash });
   } catch (err: any) {
