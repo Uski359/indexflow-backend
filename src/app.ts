@@ -39,7 +39,7 @@ if (config.enableRequestLogging) {
 app.use(helmet());
 app.use(
   cors({
-    origin: config.nodeEnv === 'production' ? 'https://indexflow.app' : '*'
+    origin: config.nodeEnv === 'production' ? 'https://www.indexflow.network' : '*'
   })
 );
 app.use(express.json({ limit: '5mb' }));
