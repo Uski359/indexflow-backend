@@ -19,15 +19,7 @@ const token = new ethers.Contract(TOKEN_ADDRESS, tokenAbi, wallet);
 
 const walletCooldown = new Map<string, number>();
 const ipCooldown = new Map<string, number>();
-const COOLDOWN_MS =
-  Number(process.env.FAUCET_COOLDOWN_MS) || 24 * 60 * 60 * 1000; // default 24h
-
-const DEV_BYPASS_WALLET =
-  process.env.FAUCET_DEV_BYPASS_WALLET?.toLowerCase();
-
-function remainingMs(last: number) {
-  return Math.max(0, COOLDOWN_MS - (Date.now() - last));
-}
+const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
 
 router.post("/", async (req, res) => {
   const { address } = req.body ?? {};
@@ -47,48 +39,28 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "Invalid address" });
   }
 
-  const addr = address.toLowerCase();
+  const now = Date.now();
 
-  const isDevBypass =
-    DEV_BYPASS_WALLET && addr === DEV_BYPASS_WALLET;
+  if (walletCooldown.has(address) && now - walletCooldown.get(address)! < COOLDOWN_MS) {
+    return res.status(429).json({ error: "Address cooldown active" });
+  }
 
-  if (!isDevBypass) {
-    if (walletCooldown.has(addr)) {
-      const last = walletCooldown.get(addr)!;
-      const remain = remainingMs(last);
-      if (remain > 0) {
-        return res.status(429).json({
-          error: "Cooldown active",
-          remainingMs: remain,
-        });
-      }
-    }
-
-    if (ipCooldown.has(ip as string)) {
-      const last = ipCooldown.get(ip as string)!;
-      const remain = remainingMs(last);
-      if (remain > 0) {
-        return res.status(429).json({
-          error: "IP cooldown active",
-          remainingMs: remain,
-        });
-      }
-    }
+  if (ipCooldown.has(ip) && now - ipCooldown.get(ip)! < COOLDOWN_MS) {
+    return res.status(429).json({ error: "IP cooldown active" });
   }
 
   try {
-    const tx = await token.transfer(addr, FAUCET_AMOUNT);
+    const tx = await token.transfer(address, FAUCET_AMOUNT);
     await tx.wait();
 
-    walletCooldown.set(addr, Date.now());
-    ipCooldown.set(ip as string, Date.now());
+    walletCooldown.set(address, now);
+    ipCooldown.set(ip, now);
 
     return res.json({ success: true, hash: tx.hash });
-  } catch (err: any) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ error: "Faucet failed", details: err?.message });
+  } catch (error: unknown) {
+    console.error(error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return res.status(500).json({ error: "Faucet failed", details: message });
   }
 });
 

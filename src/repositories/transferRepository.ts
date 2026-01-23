@@ -31,7 +31,11 @@ export class TransferRepository {
       .toArray();
 
     // IMPORTANT: DO NOT validate response with Zod!
-    return docs.map(({ _id, ...rest }) => rest as Transfer);
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      void _id;
+      return rest as Transfer;
+    });
   }
 }
 
