@@ -1,0 +1,26 @@
+import type { NextFunction, Request, Response } from 'express';
+import createHttpError from 'http-errors';
+
+import { logger } from '../../config/logger.js';
+import { getCampaignConfig } from '../../config/campaigns.js';
+import { evaluatorService } from '../../services/evaluatorService.js';
+
+export const getMockWallets = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const params = req.params as { id: string };
+    const query = req.query as { count?: number };
+
+    const campaign_id = params.id;
+    if (!getCampaignConfig(campaign_id)) {
+      throw createHttpError(400, `Unknown campaign_id: ${campaign_id}`);
+    }
+
+    const count = query.count ?? 200;
+    const wallets = evaluatorService.generateMockWallets(campaign_id, count);
+
+    res.json(wallets);
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to generate mock wallets');
+    next(error);
+  }
+};

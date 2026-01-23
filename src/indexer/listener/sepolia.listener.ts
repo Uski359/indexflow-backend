@@ -1,7 +1,7 @@
 import '../env.js';
 
 import { Interface, JsonRpcProvider, getAddress, id, isError, type Log } from 'ethers';
-import { MongoClient, type Collection } from 'mongodb';
+import { MongoClient, MongoServerError, type Collection } from 'mongodb';
 import pino from 'pino';
 
 import { TransferSchema, type Transfer } from '../../schema/transferSchema.js';
@@ -36,6 +36,9 @@ const isRateLimitError = (error: unknown): boolean => {
 
   return message.includes('rate limit') || message.includes('too many request') || message.includes('429');
 };
+
+const getLogIndex = (log: Log): number =>
+  (log as { logIndex?: number }).logIndex ?? (log as { index?: number }).index ?? 0;
 
 class MultiRpcProvider {
   private readonly rpcUrls: string[];
@@ -178,7 +181,7 @@ class MultiRpcProvider {
 
 class TransferRepository {
   private client: MongoClient;
-  private collection?: Collection<Transfer>;
+  private collection?: Collection<Transfer & { chain?: string }>;
   private connected = false;
 
   constructor(
@@ -189,10 +192,18 @@ class TransferRepository {
     this.client = new MongoClient(uri);
   }
 
-  private async getCollection(): Promise<Collection<Transfer>> {
+  private async getCollection(): Promise<Collection<Transfer & { chain?: string }>> {
     if (!this.connected) {
       await this.client.connect();
-      this.collection = this.client.db(this.dbName).collection<Transfer>('transfers');
+      this.collection = this.client.db(this.dbName).collection<Transfer & { chain?: string }>('transfers');
+      await this.collection.createIndex(
+        { chainId: 1, txHash: 1, logIndex: 1 },
+        {
+          name: 'transfer_chainId_tx_log_unique',
+          unique: true,
+          partialFilterExpression: { chainId: { $exists: true }, logIndex: { $exists: true } }
+        }
+      );
       this.connected = true;
       this.log.info({ db: this.dbName }, 'Connected to MongoDB for transfers');
     }
@@ -202,11 +213,37 @@ class TransferRepository {
 
   async insert(transfer: Transfer): Promise<void> {
     const collection = await this.getCollection();
-    await collection.insertOne(transfer);
+    const doc: Transfer & { chain?: string } = { ...transfer, chain: transfer.chainId };
+    try {
+      await collection.updateOne(
+        {
+          chainId: doc.chainId,
+          txHash: doc.txHash,
+          $or: [{ logIndex: doc.logIndex }, { logIndex: { $exists: false } }]
+        },
+        { $set: doc },
+        { upsert: true }
+      );
+    } catch (error) {
+      if (error instanceof MongoServerError && error.code === 11000) {
+        this.log.debug(
+          { chainId: doc.chainId, txHash: doc.txHash, logIndex: doc.logIndex },
+          'Duplicate transfer ignored'
+        );
+        return;
+      }
+      throw error;
+    }
   }
 }
 
-type StateDoc = { _id: string; chainId: string; lastProcessedBlock: number };
+type StateDoc = {
+  _id: string;
+  chainId: string;
+  lastProcessedBlock: number;
+  updatedAt: Date;
+  currentChainBlock?: number;
+};
 
 class IndexStateRepository {
   private client: MongoClient;
@@ -239,11 +276,30 @@ class IndexStateRepository {
     return doc?.lastProcessedBlock ?? null;
   }
 
-  async setLastProcessedBlock(chainId: string, block: number): Promise<void> {
+  async setLastProcessedBlock(
+    chainId: string,
+    block: number,
+    currentChainBlock?: number
+  ): Promise<void> {
     const collection = await this.getCollection();
+    const stateUpdate: {
+      chainId: string;
+      lastProcessedBlock: number;
+      updatedAt: Date;
+      currentChainBlock?: number;
+    } = {
+      chainId,
+      lastProcessedBlock: block,
+      updatedAt: new Date()
+    };
+
+    if (currentChainBlock !== undefined) {
+      stateUpdate.currentChainBlock = currentChainBlock;
+    }
+
     await collection.updateOne(
       { chainId },
-      { $set: { chainId, lastProcessedBlock: block } },
+      { $set: stateUpdate },
       { upsert: true }
     );
   }
@@ -306,7 +362,7 @@ export const startListener = async (): Promise<void> => {
       p.getBlockNumber()
     );
     lastProcessedBlock = Number(current) - 1;
-    await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock);
+    await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock, Number(current));
   }
 
   logger.info(
@@ -325,6 +381,7 @@ export const startListener = async (): Promise<void> => {
       const currentBlock = Number(
         await multiProvider.callWithRetry('getBlockNumber', (provider) => provider.getBlockNumber())
       );
+      await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock, currentBlock);
 
       if (currentBlock <= lastProcessedBlock) {
         await sleep(POLL_INTERVAL_MS);
@@ -359,6 +416,7 @@ export const startListener = async (): Promise<void> => {
           const to = getAddress(parsed.args.to);
           const value = BigInt(parsed.args.value);
           const blockNumber = Number(log.blockNumber);
+          const logIndex = getLogIndex(log);
           const txHash = log.transactionHash;
 
           const block = await multiProvider.callWithRetry('getBlock', (provider) =>
@@ -369,10 +427,11 @@ export const startListener = async (): Promise<void> => {
             chainId: chainId!,
             blockNumber,
             txHash,
+            logIndex,
             from,
             to,
             amount: value.toString(),
-            timestamp: Number(block.timestamp)
+            timestamp: Number(block?.timestamp ?? 0)
           };
 
           const validation = TransferSchema.safeParse(transfer);
@@ -401,7 +460,7 @@ export const startListener = async (): Promise<void> => {
       }
 
       lastProcessedBlock = toBlock;
-      await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock);
+      await stateRepo.setLastProcessedBlock(chainId!, lastProcessedBlock, currentBlock);
     } catch (error) {
       logger.error({ err: error }, 'Indexer loop error');
     }
