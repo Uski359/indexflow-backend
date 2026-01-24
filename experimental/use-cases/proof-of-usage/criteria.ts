@@ -1,10 +1,11 @@
-import type { UsageCriteriaParams } from '../../../src/core/contracts/usageOutputV1.js';
-import {
-  DEFAULT_CRITERIA_SET_ID,
-  criteriaPresets
-} from '../../../src/core/criteria/criteriaPresets.js';
+export type ProofOfUsageCriteria = {
+  timeframeDays: number;
+  minimumInteractions: number;
+  minimumActiveDays?: number;
+};
 
-export type ProofOfUsageCriteria = UsageCriteriaParams;
-
-export const defaultProofOfUsageCriteria: ProofOfUsageCriteria =
-  criteriaPresets[DEFAULT_CRITERIA_SET_ID].params;
+export const defaultProofOfUsageCriteria: ProofOfUsageCriteria = {
+  timeframeDays: 30,
+  minimumInteractions: 5,
+  minimumActiveDays: 3,
+};

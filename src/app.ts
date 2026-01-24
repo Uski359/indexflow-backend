@@ -10,9 +10,9 @@ import { logger } from './config/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { defaultRateLimiter } from './middleware/rateLimiter.js';
 import routes from './routes/index.js';
+import v1Routes from './api/routes/v1.js';
 import transferRoutes from './routes/transfers.js';
 import faucetRoute from './routes/faucet.js';
-import v1Routes from './api/routes/v1.js';
 
 const app = express();
 
@@ -36,10 +36,7 @@ if (config.enableRequestLogging) {
 app.use(helmet());
 app.use(
   cors({
-    origin:
-      config.nodeEnv === 'production'
-        ? ['https://www.indexflow.network', 'https://indexflow.network']
-        : '*'
+    origin: config.nodeEnv === 'production' ? 'https://indexflow.app' : '*'
   })
 );
 app.use(defaultRateLimiter);

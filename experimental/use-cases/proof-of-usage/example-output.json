@@ -1,18 +1,15 @@
 {
-  "protocol": "indexflow",
-  "output_version": "1.0",
-  "wallet": "0x8ba1f109551bD432803012645Ac136ddd64DBA72",
-  "campaign_id": "airdrop-2025",
-  "window": { "type": "last_30_days", "start": 1697408000, "end": 1700000000 },
-  "verified_usage": true,
-  "usage_summary": { "days_active": 9, "tx_count": 15, "unique_contracts": 4 },
-  "criteria": {
-    "criteria_set_id": "airdrop/basic@1",
-    "engine_version": "v1",
-    "params": { "min_days_active": 7, "min_tx_count": 10, "min_unique_contracts": 3 }
-  },
-  "proof": {
-    "hash_algorithm": "keccak256",
-    "canonical_hash": "0x81bf93dd573fa07c94ad603ab6f9c06e1c217ad1b2e9ac0a8edcd57f3e95e5bb"
+  "eligible": true,
+  "metadata": {
+    "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+    "timeframeDays": 30,
+    "minimumInteractions": 5,
+    "minimumActiveDays": 3,
+    "observedInteractions": 11,
+    "activeDays": 4,
+    "reason": "Interacted 11 times across 4 different days",
+    "sourceQueryIdentifiers": [
+      "core:queries:recentInteractions"
+    ]
   }
 }
