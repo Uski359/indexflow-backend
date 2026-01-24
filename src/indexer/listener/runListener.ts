@@ -91,42 +91,9 @@ const fetchLogs = async (
 
 const POLL_INTERVAL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_INTERVAL_MS ?? '5000'));
 const LISTENER_BATCH_SIZE = Math.max(1, Number(process.env.INDEXER_BATCH_SIZE ?? '25'));
-const REORG_DEPTH = Math.max(0, Number(process.env.REORG_DEPTH ?? '6'));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export interface BlockProcessor {
-  chain: ChainConfig & { tokenAddress: string; deployBlock: number };
-  provider: RateLimitedProvider;
-  startBlock: number;
-  stakingTarget: ContractTarget | null;
-  poiTarget: ContractTarget | null;
-  contributionTarget: ContractTarget | null;
-  processBlock: (blockNumber: number) => Promise<void>;
-}
-
-const resolveStartBlock = async (
-  chain: ChainConfig & { deployBlock: number },
-  provider: RateLimitedProvider
-): Promise<number> => {
-  const configuredStartRaw = process.env.START_BLOCK;
-  if (configuredStartRaw !== undefined) {
-    const configuredStart = Number(configuredStartRaw);
-    if (Number.isFinite(configuredStart) && configuredStart > 0) {
-      return Math.max(0, configuredStart);
-    }
-    const latest = await provider.getBlockNumber();
-    return Math.max(0, Number(latest));
-  }
-
-  if (chain.deployBlock !== null) {
-    return Math.max(0, chain.deployBlock);
-  }
-
-  const latest = await provider.getBlockNumber();
-  return Math.max(0, Number(latest));
-};
-
-export const createBlockProcessor = async (chainId: string): Promise<BlockProcessor> => {
+export const runListener = async (chainId: string): Promise<void> => {
   const chain = requireChainReady(chainId);
   const provider = getProvider(chainId);
 
@@ -141,6 +108,44 @@ export const createBlockProcessor = async (chainId: string): Promise<BlockProces
   const stakingCollection = await getStakingEventsCollection();
   const poiCollection = await getPoiEventsCollection();
   const contributionsCollection = await getContributionsCollection();
+
+  const resolveStartingBlock = async (): Promise<number> => {
+    const persisted = await loadLastProcessedBlock(chain.id);
+    if (persisted !== null) {
+      return persisted;
+    }
+
+    const configuredStartRaw = process.env.START_BLOCK;
+    if (configuredStartRaw !== undefined) {
+      const configuredStart = Number(configuredStartRaw);
+      if (Number.isFinite(configuredStart) && configuredStart > 0) {
+        return Math.max(0, configuredStart - 1);
+      }
+      const latest = await provider.getBlockNumber();
+      return Math.max(0, Number(latest) - 1);
+    }
+
+    if (chain.deployBlock !== null) {
+      return Math.max(0, chain.deployBlock - 1);
+    }
+
+    const latest = await provider.getBlockNumber();
+    return Math.max(0, Number(latest) - 1);
+  };
+
+  let lastProcessedBlock = await resolveStartingBlock();
+
+  logger.info('Starting listener', {
+    chainId: chain.id,
+    network: chain.network,
+    rpc: obfuscateRpcUrl(provider.rpcUrl),
+    staking: stakingTarget?.address,
+    poi: poiTarget?.address,
+    contributions: contributionTarget?.address,
+    startBlock: lastProcessedBlock + 1,
+    batchSize: LISTENER_BATCH_SIZE,
+    pollIntervalMs: POLL_INTERVAL_MS
+  });
 
   const processBlock = async (blockNumber: number): Promise<void> => {
     const block = await withRetry(
@@ -341,45 +346,6 @@ export const createBlockProcessor = async (chainId: string): Promise<BlockProces
     });
   };
 
-  const startBlock = await resolveStartBlock(chain, provider);
-
-  return {
-    chain,
-    provider,
-    startBlock,
-    stakingTarget,
-    poiTarget,
-    contributionTarget,
-    processBlock
-  };
-};
-
-export const runListener = async (chainId: string): Promise<void> => {
-  const {
-    chain,
-    provider,
-    startBlock,
-    processBlock,
-    stakingTarget,
-    poiTarget,
-    contributionTarget
-  } = await createBlockProcessor(chainId);
-  const persisted = await loadLastProcessedBlock(chain.id);
-  let lastProcessedBlock = persisted ?? Math.max(0, startBlock - 1);
-
-  logger.info('Starting listener', {
-    chainId: chain.id,
-    network: chain.network,
-    rpc: obfuscateRpcUrl(provider.rpcUrl),
-    staking: stakingTarget?.address,
-    poi: poiTarget?.address,
-    contributions: contributionTarget?.address,
-    startBlock,
-    batchSize: LISTENER_BATCH_SIZE,
-    pollIntervalMs: POLL_INTERVAL_MS,
-    reorgDepth: REORG_DEPTH
-  });
-
   provider.provider.on('error', (error) => {
     logger.error('Provider emitted an error', { chainId: chain.id, err: error });
   });
@@ -399,11 +365,13 @@ export const runListener = async (chainId: string): Promise<void> => {
     }
 
     const targetBlock = Math.min(latestBlock, lastProcessedBlock + LISTENER_BATCH_SIZE);
-    const fromBlock = Math.max(lastProcessedBlock - REORG_DEPTH, startBlock);
 
     try {
-      for (let blockNumber = fromBlock; blockNumber <= targetBlock; blockNumber += 1) {
-        // Basic reorg safety by re-indexing last N blocks.
+      for (
+        let blockNumber = lastProcessedBlock + 1;
+        blockNumber <= targetBlock;
+        blockNumber += 1
+      ) {
         // eslint-disable-next-line no-await-in-loop
         await processBlock(blockNumber);
         lastProcessedBlock = blockNumber;
@@ -414,7 +382,7 @@ export const runListener = async (chainId: string): Promise<void> => {
       logger.error('Listener batch failed', {
         chainId: chain.id,
         err: error,
-        fromBlock,
+        fromBlock: lastProcessedBlock + 1,
         toBlock: targetBlock
       });
     }

@@ -43,58 +43,42 @@ export const saveTransfer = async (transfer: TransferInput): Promise<void> => {
   };
 
   const normalizedTimestamp = normalizeTimestamp(transfer.timestamp);
-  const overwritePayload = {
-    $set: {
-      chain: chainId,
-      chainId,
-      blockNumber: transfer.blockNumber,
-      block: transfer.blockNumber,
-      txHash: transfer.txHash,
-      logIndex: transfer.logIndex,
-      from: transfer.from,
-      to: transfer.to,
-      value: transfer.value,
-      timestamp: normalizedTimestamp
-    }
-  };
 
   await withRetry(
     async () => {
       try {
         await transfers.updateOne(
           filter,
-          overwritePayload,
+          {
+            $set: {
+              chain: chainId,
+              chainId,
+              blockNumber: transfer.blockNumber,
+              block: transfer.blockNumber,
+              txHash: transfer.txHash,
+              logIndex: transfer.logIndex,
+              from: transfer.from,
+              to: transfer.to,
+              value: transfer.value,
+              timestamp: normalizedTimestamp
+            }
+          },
           { upsert: true }
         );
       } catch (error) {
         if (isDuplicateKeyError(error)) {
-          await transfers
-            .updateOne(filter, overwritePayload, { upsert: false })
-            .then((result) => {
-              if (result.matchedCount === 0) {
-                logger.debug('Duplicate transfer overwrite skipped; no match found', {
-                  chainId,
-                  txHash: transfer.txHash,
-                  logIndex: transfer.logIndex
-                });
-              }
-            })
-            .catch((updateError) => {
-              logger.error('Failed to overwrite duplicate transfer', {
-                chainId,
-                txHash: transfer.txHash,
-                logIndex: transfer.logIndex,
-                err: updateError
-              });
-              throw updateError;
-            });
+          logger.debug('Duplicate transfer ignored', {
+            chainId,
+            txHash: transfer.txHash,
+            logIndex: transfer.logIndex
+          });
           return;
         }
         throw error;
       }
     },
     {
-      taskName: `mongo:transfers:${chainId}:${transfer.txHash}:${transfer.logIndex}`,
+      taskName: `mongo:transfers:${transfer.chain}:${transfer.txHash}:${transfer.logIndex}`,
       logger,
       baseDelayMs: 300
     }

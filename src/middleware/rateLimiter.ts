@@ -1,11 +1,12 @@
 import rateLimit from 'express-rate-limit';
 
-export const faucetLimiter = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000,
-  max: 1,
-  standardHeaders: true,
+export const defaultRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 200,
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
-  message: 'Too many requests from this IP, please try again later.'
+  message: 'Too many requests from this IP, please try again later.',
+  skip: (req) => req.path.startsWith('/api/proof-of-usage')
 });
 
 export const validatorRateLimiter = rateLimit({
