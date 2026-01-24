@@ -1,4 +1,6 @@
 import type { UsageOutputV1 } from '../core/contracts/usageOutputV1.js';
+import type { InsightV1 } from '../insights/insightsV1.js';
+import type { CommentaryV1 } from '../commentary/types.js';
 
 export type CacheService<T> = {
   get: (key: string) => T | undefined;
@@ -59,5 +61,13 @@ export const DEFAULT_CACHE_TTL_MS = 30 * 60 * 1000;
 export const createTTLCache = <T>(options: CacheOptions) => new TTLCache<T>(options);
 
 export const usageOutputCache = createTTLCache<UsageOutputV1>({
+  ttlMs: DEFAULT_CACHE_TTL_MS
+});
+
+export const insightsCache = createTTLCache<InsightV1>({
+  ttlMs: DEFAULT_CACHE_TTL_MS
+});
+
+export const commentaryCache = createTTLCache<CommentaryV1>({
   ttlMs: DEFAULT_CACHE_TTL_MS
 });

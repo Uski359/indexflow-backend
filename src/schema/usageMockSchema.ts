@@ -37,6 +37,64 @@ export const campaignRunRequestSchema = z.object({
   mode: z.literal('sync')
 });
 
+const usageOutputWindowSchema = z.object({
+  type: windowTypeSchema,
+  start: z.number().int(),
+  end: z.number().int()
+});
+
+const usageSummarySchema = z.object({
+  days_active: z.number().int(),
+  tx_count: z.number().int(),
+  unique_contracts: z.number().int()
+});
+
+const usageCriteriaSchema = z
+  .object({
+    criteria_set_id: z.string().min(1)
+  })
+  .passthrough();
+
+const usageProofSchema = z
+  .object({
+    canonical_hash: z.string().min(1)
+  })
+  .passthrough();
+
+export const usageOutputSchema = z
+  .object({
+    protocol: z.string().min(1),
+    output_version: z.string().min(1),
+    wallet: walletSchema,
+    campaign_id: z.string().min(1),
+    window: usageOutputWindowSchema,
+    verified_usage: z.boolean(),
+    usage_summary: usageSummarySchema,
+    criteria: usageCriteriaSchema,
+    proof: usageProofSchema
+  })
+  .passthrough();
+
+export const insightsRequestSchema = z.object({
+  output: usageOutputSchema
+});
+
+export const campaignInsightsRequestSchema = campaignRunRequestSchema;
+
+const insightSchema = z.object({
+  insight_version: z.literal('v1'),
+  overall_score: z.number(),
+  farming_probability: z.number(),
+  behavior_tag: z.enum(['organic', 'suspected_farm', 'inactive', 'mixed'])
+});
+
+export const commentaryRequestSchema = z.object({
+  output: usageOutputSchema,
+  insights: insightSchema
+});
+
+export const campaignCommentaryRequestSchema = campaignRunRequestSchema;
+
 export const campaignParamsSchema = z.object({
   id: z.string().min(1)
 });

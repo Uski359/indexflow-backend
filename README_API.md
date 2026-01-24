@@ -10,6 +10,16 @@ Express + TypeScript + ESM API layer that surfaces indexed token data from Mongo
 - `GET /api/stats/activity` → `{ success: true, data: { last24hTransfers } }` counted by indexed time.
 - `GET /api/health/indexer` → `{ success: true, data: { latestBlock, indexedAt } }` from the newest transfer.
 
+## Proof-of-usage demo (v1)
+- `POST /v1/commentary` -> `{ output, insights }` -> `{ commentary, cached }`.
+- `POST /v1/campaign/commentary` -> `{ campaign_id, window, wallets, mode: "sync" }` -> per-wallet output, insights, and commentary.
+- Commentary is a non-proof payload and is cached by the core proof hash (plus campaign/window/criteria). It never changes the core output or proof hash.
+
+### Commentary provider settings
+- `COMMENTARY_PROVIDER=disabled` (default) uses deterministic template commentary.
+- `COMMENTARY_PROVIDER=openai` + `OPENAI_API_KEY` enables OpenAI generation.
+- Optional: `OPENAI_MODEL` (defaults to `gpt-4o-mini`).
+
 ### Example responses
 ```json
 // GET /api/transfers/latest
