@@ -10,6 +10,16 @@ Express + TypeScript + ESM API layer that surfaces indexed token data from Mongo
 - `GET /api/stats/activity` → `{ success: true, data: { last24hTransfers } }` counted by indexed time.
 - `GET /api/health/indexer` → `{ success: true, data: { latestBlock, indexedAt } }` from the newest transfer.
 
+## Proof-of-usage demo (v1)
+- `POST /v1/commentary` -> `{ output, insights }` -> `{ commentary, cached }`.
+- `POST /v1/campaign/commentary` -> `{ campaign_id, window, wallets, mode: "sync" }` -> per-wallet output, insights, and commentary.
+- Commentary is a non-proof payload and is cached by the core proof hash (plus campaign/window/criteria). It never changes the core output or proof hash.
+
+### Commentary provider settings
+- `COMMENTARY_PROVIDER=disabled` (default) uses deterministic template commentary.
+- `COMMENTARY_PROVIDER=openai` + `OPENAI_API_KEY` enables OpenAI generation.
+- Optional: `OPENAI_MODEL` (defaults to `gpt-4o-mini`).
+
 ### Example responses
 ```json
 // GET /api/transfers/latest
@@ -43,6 +53,7 @@ Express + TypeScript + ESM API layer that surfaces indexed token data from Mongo
 ## Manual verification
 - `curl http://localhost:4000/api/stats` to inspect per-chain stats and indexing lag.
 - `curl http://localhost:4000/api/health` to confirm the latest indexed block versus the chain head.
+- `curl "https://indexflow-backend.onrender.com/v1/ens/resolve?name=vitalik.eth"` to smoke-test ENS resolution on the deployed API.
 
 ## Required environment
 - `PORT` (API port, default 4000)
