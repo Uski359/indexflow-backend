@@ -12,6 +12,7 @@ export type CacheService<T> = {
 export type CacheOptions = {
   ttlMs: number;
   now?: () => number;
+  maxEntries?: number;
 };
 
 type CacheEntry<T> = {
@@ -23,10 +24,12 @@ export class TTLCache<T> implements CacheService<T> {
   private readonly store = new Map<string, CacheEntry<T>>();
   private readonly ttlMs: number;
   private readonly now: () => number;
+  private readonly maxEntries?: number;
 
   constructor(options: CacheOptions) {
     this.ttlMs = options.ttlMs;
     this.now = options.now ?? (() => Date.now());
+    this.maxEntries = options.maxEntries;
   }
 
   get(key: string): T | undefined {
@@ -40,11 +43,29 @@ export class TTLCache<T> implements CacheService<T> {
       return undefined;
     }
 
+    // Refresh LRU ordering on access.
+    if (this.maxEntries) {
+      this.store.delete(key);
+      this.store.set(key, entry);
+    }
+
     return entry.value;
   }
 
   set(key: string, value: T) {
+    if (this.maxEntries) {
+      this.store.delete(key);
+    }
     this.store.set(key, { value, expiresAt: this.now() + this.ttlMs });
+    if (this.maxEntries) {
+      while (this.store.size > this.maxEntries) {
+        const oldest = this.store.keys().next().value as string | undefined;
+        if (!oldest) {
+          break;
+        }
+        this.store.delete(oldest);
+      }
+    }
   }
 
   delete(key: string) {

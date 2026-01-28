@@ -15,6 +15,22 @@ import transferRoutes from './routes/transfers.js';
 import faucetRoute from './routes/faucet.js';
 
 const app = express();
+const FAUCET_PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
+
+const isFaucetConfigured = () => {
+  const rpcUrl = process.env.RPC_URL?.trim();
+  const tokenAddress = process.env.TOKEN_ADDRESS?.trim();
+  const tokenDecimals = process.env.TOKEN_DECIMALS?.trim();
+  const privateKey = process.env.FAUCET_PRIVATE_KEY?.trim();
+
+  return Boolean(
+    rpcUrl &&
+      tokenAddress &&
+      tokenDecimals &&
+      privateKey &&
+      FAUCET_PRIVATE_KEY_REGEX.test(privateKey)
+  );
+};
 
 app.disable('x-powered-by');
 
@@ -60,8 +76,12 @@ app.get('/', (_req, res) => {
 
 app.use('/api/transfers', transferRoutes);
 app.use('/transfers', transferRoutes);
-app.use('/api/faucet', faucetRoute);
-app.use('/faucet', faucetRoute);
+if (isFaucetConfigured()) {
+  app.use('/api/faucet', faucetRoute);
+  app.use('/faucet', faucetRoute);
+} else if (config.nodeEnv !== 'test') {
+  logger.warn('Faucet disabled: missing or invalid faucet environment configuration.');
+}
 app.use('/v1', v1Routes);
 app.use('/api', routes);
 app.use(notFoundHandler);

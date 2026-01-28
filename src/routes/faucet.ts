@@ -3,25 +3,65 @@ import { ethers } from "ethers";
 
 const router = Router();
 
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.FAUCET_PRIVATE_KEY!, provider);
-
-const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS!;
-const FAUCET_AMOUNT = ethers.parseUnits(
-  process.env.FAUCET_AMOUNT || "10",
-  18
-);
-
 const tokenAbi = [
   "function transfer(address to, uint256 value) public returns (bool)"
 ];
-const token = new ethers.Contract(TOKEN_ADDRESS, tokenAbi, wallet);
+const PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
+
+type FaucetState = {
+  token: ethers.Contract;
+  amount: bigint;
+};
+
+let cachedState: FaucetState | null | undefined;
+
+const getFaucetState = (): FaucetState | null => {
+  if (cachedState !== undefined) {
+    return cachedState;
+  }
+
+  const rpcUrl = process.env.RPC_URL?.trim();
+  const privateKey = process.env.FAUCET_PRIVATE_KEY?.trim();
+  const tokenAddress = process.env.TOKEN_ADDRESS?.trim();
+  const tokenDecimalsRaw = process.env.TOKEN_DECIMALS?.trim();
+
+  if (!rpcUrl || !privateKey || !tokenAddress || !tokenDecimalsRaw) {
+    cachedState = null;
+    return cachedState;
+  }
+
+  if (!PRIVATE_KEY_REGEX.test(privateKey)) {
+    cachedState = null;
+    return cachedState;
+  }
+
+  const decimals = Number(tokenDecimalsRaw);
+  if (!Number.isInteger(decimals) || decimals < 0) {
+    cachedState = null;
+    return cachedState;
+  }
+
+  const faucetAmountRaw = process.env.FAUCET_AMOUNT?.trim() || "10";
+  const amount = ethers.parseUnits(faucetAmountRaw, decimals);
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const wallet = new ethers.Wallet(privateKey, provider);
+  const token = new ethers.Contract(tokenAddress, tokenAbi, wallet);
+
+  cachedState = { token, amount };
+  return cachedState;
+};
 
 const walletCooldown = new Map<string, number>();
 const ipCooldown = new Map<string, number>();
 const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
 
 router.post("/", async (req, res) => {
+  const faucetState = getFaucetState();
+  if (!faucetState) {
+    return res.status(503).json({ error: "faucet_disabled" });
+  }
+
   const { address } = req.body ?? {};
   const forwarded = req.headers["x-forwarded-for"];
   const ip =
@@ -50,7 +90,7 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const tx = await token.transfer(address, FAUCET_AMOUNT);
+    const tx = await faucetState.token.transfer(address, faucetState.amount);
     await tx.wait();
 
     walletCooldown.set(address, now);
