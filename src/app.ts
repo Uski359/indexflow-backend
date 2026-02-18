@@ -5,14 +5,14 @@ import pinoHttp from 'pino-http';
 import type { DestinationStream } from 'pino';
 import type { Options as PinoHttpOptions, HttpLogger } from 'pino-http';
 
-import { config } from './config/env.js';
-import { logger } from './config/logger.js';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import { defaultRateLimiter } from './middleware/rateLimiter.js';
-import routes from './routes/index.js';
-import v1Routes from './api/routes/v1.js';
-import transferRoutes from './routes/transfers.js';
-import faucetRoute from './routes/faucet.js';
+import { config } from './infra/config/env.js';
+import { logger } from './infra/config/logger.js';
+import { errorHandler, notFoundHandler } from './api/middleware/errorHandler.js';
+import { defaultRateLimiter } from './api/middleware/rateLimiter.js';
+import routes from './api/legacy/routes/index.js';
+import v1Routes from './api/v1/routes/v1.js';
+import transferRoutes from './api/legacy/routes/transfers.js';
+import faucetRoute from './api/legacy/routes/faucet.js';
 
 const app = express();
 const FAUCET_PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;

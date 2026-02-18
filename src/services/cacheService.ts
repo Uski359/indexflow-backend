@@ -1,6 +1,6 @@
 import type { UsageOutputV1 } from '../core/contracts/usageOutputV1.js';
-import type { InsightV1 } from '../insights/insightsV1.js';
-import type { CommentaryV1 } from '../commentary/types.js';
+import type { InsightV1 } from '../core/insights/insightsV1.js';
+import type { CommentaryV1 } from './commentary/types.js';
 
 export type CacheService<T> = {
   get: (key: string) => T | undefined;
@@ -92,3 +92,4 @@ export const insightsCache = createTTLCache<InsightV1>({
 export const commentaryCache = createTTLCache<CommentaryV1>({
   ttlMs: DEFAULT_CACHE_TTL_MS
 });
+

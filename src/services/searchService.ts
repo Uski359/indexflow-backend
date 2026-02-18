@@ -1,6 +1,6 @@
-import { config } from '../config/env.js';
-import { logger } from '../config/logger.js';
-import { searchDatasetsByQuery } from '../repositories/datasetRepository.js';
+import { config } from '../infra/config/env.js';
+import { logger } from '../infra/config/logger.js';
+import { searchDatasetsByQuery } from '../infra/repositories/datasetRepository.js';
 import { searchDatasetDocuments } from './elasticService.js';
 import { Dataset } from '../types/protocol.js';
 
@@ -46,3 +46,4 @@ export async function searchDatasets<T>(query: string): Promise<SearchResult<T>>
     results: combined as unknown as T[]
   };
 }
+

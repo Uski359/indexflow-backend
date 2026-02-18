@@ -1,10 +1,10 @@
 import http from 'http';
 
 import app from './app.js';
-import { config } from './config/env.js';
-import { logger } from './config/logger.js';
-import { transferRepository } from './repositories/transferRepository.js';
-import './indexer/listener/sepolia.listener.js';
+import { config } from './infra/config/env.js';
+import { logger } from './infra/config/logger.js';
+import { transferRepository } from './infra/repositories/transferRepository.js';
+import './infra/indexer/listener/sepolia.listener.js';
 
 async function startServer() {
   try {

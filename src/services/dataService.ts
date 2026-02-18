@@ -8,8 +8,8 @@ import {
   listDatasets as listDatasetRecords,
   setDatasetContractInfo,
   updateDataset
-} from '../repositories/datasetRepository.js';
-import { config } from '../config/env.js';
+} from '../infra/repositories/datasetRepository.js';
+import { config } from '../infra/config/env.js';
 import { Dataset, VerificationResult, ValidatorSummary } from '../types/protocol.js';
 import { createNotFoundError } from '../utils/httpError.js';
 import { indexDatasetDocument } from './elasticService.js';
@@ -256,3 +256,4 @@ function estimateReward(input: SubmitDatasetInput) {
   const stakeBoost = Math.min(1 + input.stakeAmount / 10_000, 1.25);
   return Math.round(baseReward * sizeFactor * stakeBoost);
 }
+

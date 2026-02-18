@@ -1,7 +1,2 @@
-import { logger } from '../logger.js';
-import { runBackfill } from './runBackfill.js';
+import '../../infra/indexer/backfill/bnb.backfill.js';
 
-runBackfill('bnb').catch((error: unknown) => {
-  logger.error('BNB Chain backfill failed', { chainId: 'bnb', err: error });
-  process.exit(1);
-});

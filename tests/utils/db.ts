@@ -1,7 +1,7 @@
 import { newDb } from 'pg-mem';
 import type { Pool } from 'pg';
 
-import { resetPool, setPool } from '../../src/db/postgres.js';
+import { resetPool, setPool } from '../../src/infra/db/postgres.js';
 
 export interface TestDatabase {
   pool: Pool;

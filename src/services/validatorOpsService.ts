@@ -1,4 +1,4 @@
-import { config } from '../config/env.js';
+import { config } from '../infra/config/env.js';
 import {
   ProofGenerationPayload,
   ProofGenerationResult,
@@ -140,3 +140,4 @@ export async function updateProofJob(
 
   return mapProofJob(job);
 }
+

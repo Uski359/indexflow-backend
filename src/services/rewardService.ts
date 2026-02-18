@@ -1,13 +1,13 @@
 import { randomUUID } from 'crypto';
 import createHttpError from 'http-errors';
 
-import { getDatasetById } from '../repositories/datasetRepository.js';
+import { getDatasetById } from '../infra/repositories/datasetRepository.js';
 import {
   fetchRecentRewardEvents,
   insertRewardEvent,
   sumRewardEvents
-} from '../repositories/rewardRepository.js';
-import { clearRewardsForAddress, sumRewards } from '../repositories/stakeRepository.js';
+} from '../infra/repositories/rewardRepository.js';
+import { clearRewardsForAddress, sumRewards } from '../infra/repositories/stakeRepository.js';
 import { RewardEvent } from '../types/protocol.js';
 import { createNotFoundError } from '../utils/httpError.js';
 
@@ -77,3 +77,4 @@ export async function getRewardSummary(address?: string): Promise<RewardSummary>
     }))
   };
 }
+

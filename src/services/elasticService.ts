@@ -1,7 +1,7 @@
 import { Client } from '@elastic/elasticsearch';
 
-import { config } from '../config/env.js';
-import { logger } from '../config/logger.js';
+import { config } from '../infra/config/env.js';
+import { logger } from '../infra/config/logger.js';
 import { Dataset } from '../types/protocol.js';
 
 const DATASET_INDEX = 'indexflow-datasets';
@@ -169,3 +169,4 @@ export async function searchDatasetDocuments(
     return [];
   }
 }
+
