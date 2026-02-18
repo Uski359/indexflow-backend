@@ -1,11 +1,12 @@
 import type { UsageOutputV1, UsageWindow } from '../core/contracts/usageOutputV1.js';
 import type {
   CampaignRunRequest,
+  EvaluationMeta,
   CampaignRunResult,
   CampaignRunSummary
 } from './evaluatorService.js';
 import { evaluatorService } from './evaluatorService.js';
-import { computeInsightV1, type InsightV1 } from '../insights/insightsV1.js';
+import { computeInsightV1, type InsightV1 } from '../core/insights/insightsV1.js';
 import { insightsCache, type CacheService } from './cacheService.js';
 
 export type InsightCacheResult = {
@@ -37,6 +38,7 @@ export type CampaignInsightsSummary = {
 export type CampaignInsightsResult = {
   campaign_id: string;
   window: UsageWindow;
+  meta: EvaluationMeta;
   results: CampaignInsightItem[];
   summary: CampaignInsightsSummary;
 };
@@ -121,6 +123,7 @@ export const createInsightsService = (deps: InsightsDependencies = {}) => {
     return {
       campaign_id: request.campaign_id,
       window: resolvedWindow,
+      meta: coreResult.meta,
       results,
       summary: summarizeCampaignInsights(coreResult.summary, results)
     };
@@ -133,3 +136,4 @@ export const createInsightsService = (deps: InsightsDependencies = {}) => {
 };
 
 export const insightsService = createInsightsService();
+

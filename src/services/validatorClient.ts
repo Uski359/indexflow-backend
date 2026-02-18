@@ -1,6 +1,6 @@
 import createHttpError from 'http-errors';
 
-import { config } from '../config/env.js';
+import { config } from '../infra/config/env.js';
 
 async function callValidator<T>(path: string, init?: RequestInit): Promise<T> {
   if (!config.dataValidatorUrl) {
@@ -41,3 +41,4 @@ async function postValidator<T>(path: string, body: unknown): Promise<T> {
 }
 
 export { callValidator, postValidator };
+

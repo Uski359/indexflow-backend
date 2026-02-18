@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { getAddress, getBytes, keccak256, toUtf8Bytes } from 'ethers';
 
-import { logger } from '../config/logger.js';
+import { logger } from '../infra/config/logger.js';
 import type { UsageSummary, UsageWindow } from '../core/contracts/usageOutputV1.js';
 
 export type MetricsRequest = {
@@ -141,3 +141,4 @@ export const metricsService: MetricsService = {
 };
 
 export const getMetricsDatasetPath = () => cachedDatasetPath ?? resolveDatasetPath();
+

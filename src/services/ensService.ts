@@ -1,6 +1,6 @@
 import { JsonRpcProvider } from 'ethers';
 
-import { logger } from '../config/logger.js';
+import { logger } from '../infra/config/logger.js';
 import { createTTLCache } from './cacheService.js';
 
 export type EnsResolvePayload = {
@@ -133,3 +133,4 @@ export const resolveEnsName = async (rawName: string): Promise<EnsResolveRespons
     };
   }
 };
+

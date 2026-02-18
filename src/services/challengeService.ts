@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 import createHttpError from 'http-errors';
 
-import { fetchChallenges, insertChallenge } from '../repositories/challengeRepository.js';
-import { getDatasetById, updateDataset } from '../repositories/datasetRepository.js';
+import { fetchChallenges, insertChallenge } from '../infra/repositories/challengeRepository.js';
+import { getDatasetById, updateDataset } from '../infra/repositories/datasetRepository.js';
 import { Challenge } from '../types/protocol.js';
 import { createNotFoundError } from '../utils/httpError.js';
 
@@ -43,3 +43,4 @@ export async function createChallenge(input: ChallengeInput): Promise<Challenge>
 
   return insertChallenge(challenge);
 }
+

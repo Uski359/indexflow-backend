@@ -9,25 +9,34 @@ import type {
 } from '../core/contracts/usageOutputV1.js';
 import type { UsageWindowInput } from '../core/evaluator/evaluateUsageV1.js';
 import { evaluateUsageV1 } from '../core/evaluator/evaluateUsageV1.js';
-import { getCampaignConfig } from '../config/campaigns.js';
+import {
+  getCampaign,
+  getCampaignTargets,
+  getDefaultCriteriaSet
+} from '../config/campaignRegistry.js';
+import { getLatestBlock } from '../infra/rpc/getLatestBlock.js';
 import {
   usageOutputCache,
   type CacheService
 } from './cacheService.js';
-import {
-  metricsService,
-  type MetricsService
-} from './metricsService.mock.js';
+import type { IMetricsProvider } from './metrics/IMetricsProvider.js';
+import { createMetricsProvider } from './metrics/index.js';
 
 export type EvaluateRequest = {
   wallet: string;
   campaign_id: string;
   window: UsageWindowInput;
+  as_of_block?: number;
+};
+
+export type EvaluationMeta = {
+  as_of_block: number;
 };
 
 export type EvaluationResult = {
   output: UsageOutputV1;
   cached: boolean;
+  meta: EvaluationMeta;
 };
 
 export type CampaignRunRequest = {
@@ -35,6 +44,7 @@ export type CampaignRunRequest = {
   window: UsageWindowInput;
   wallets: string[];
   mode: 'sync';
+  as_of_block?: number;
 };
 
 export type CampaignRunItem = {
@@ -56,11 +66,12 @@ export type CampaignRunSummary = {
 export type CampaignRunResult = {
   results: CampaignRunItem[];
   summary: CampaignRunSummary;
+  meta: EvaluationMeta;
 };
 
 export type EvaluatorDependencies = {
   cache?: CacheService<UsageOutputV1>;
-  metrics?: MetricsService;
+  metricsProvider?: IMetricsProvider;
 };
 
 const WINDOW_SECONDS: Record<Exclude<UsageWindowType, 'custom'>, number> = {
@@ -115,6 +126,21 @@ const normalizeWallet = (wallet: string) => {
   } catch (error) {
     throw createHttpError(400, 'wallet must be a valid address');
   }
+};
+
+const resolveAsOfBlock = async (
+  chain_id: number,
+  as_of_block?: number
+): Promise<number> => {
+  if (as_of_block !== undefined) {
+    const resolved = toInteger(as_of_block, 'as_of_block');
+    if (resolved < 0) {
+      throw createHttpError(400, 'as_of_block must be non-negative');
+    }
+    return resolved;
+  }
+
+  return getLatestBlock(chain_id);
 };
 
 const buildCacheKey = (
@@ -175,7 +201,7 @@ const mapWithConcurrency = async <T, R>(
 
 export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
   const cache = deps.cache ?? usageOutputCache;
-  const metrics = deps.metrics ?? metricsService;
+  const metricsProvider = deps.metricsProvider ?? createMetricsProvider();
 
   const evaluateWallet = async (request: EvaluateRequest): Promise<EvaluationResult> => {
     if (!request.campaign_id || typeof request.campaign_id !== 'string') {
@@ -189,29 +215,35 @@ export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
     if (!campaign_id) {
       throw createHttpError(400, 'campaign_id is required');
     }
-    const campaign = getCampaignConfig(campaign_id);
+    const campaign = getCampaign(campaign_id);
     if (!campaign) {
       throw createHttpError(400, `Unknown campaign_id: ${campaign_id}`);
     }
+    const criteria_set_id = getDefaultCriteriaSet(campaign_id);
+    const targets = getCampaignTargets(campaign_id);
 
     const normalizedWallet = normalizeWallet(request.wallet);
     const window = resolveWindow(request.window);
-    const cacheKey = buildCacheKey(
-      campaign_id,
-      window,
-      campaign.criteria_set_id,
-      normalizedWallet
-    );
+    const as_of_block = await resolveAsOfBlock(campaign.chain_id, request.as_of_block);
+    const cacheKey = buildCacheKey(campaign_id, window, criteria_set_id, normalizedWallet);
 
     const cachedOutput = cache.get(cacheKey);
     if (cachedOutput) {
-      return { output: cachedOutput, cached: true };
+      return {
+        output: cachedOutput,
+        cached: true,
+        meta: { as_of_block }
+      };
     }
 
-    const usage_summary: UsageSummary = metrics.getUsageSummary({
+    const usage_summary: UsageSummary = await metricsProvider.getWalletMetrics({
+      chain_id: campaign.chain_id,
       campaign_id,
-      window,
-      wallet: normalizedWallet
+      wallet: normalizedWallet,
+      start: window.start,
+      end: window.end,
+      as_of_block,
+      targets
     });
 
     const output = evaluateUsageV1({
@@ -219,8 +251,7 @@ export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
       campaign_id,
       window,
       criteria: {
-        criteria_set_id: campaign.criteria_set_id,
-        params: campaign.params
+        criteria_set_id
       },
       activity: {
         type: 'summary',
@@ -229,13 +260,23 @@ export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
     });
 
     cache.set(cacheKey, output);
-    return { output, cached: false };
+    return {
+      output,
+      cached: false,
+      meta: { as_of_block }
+    };
   };
 
   const runCampaignBatch = async (request: CampaignRunRequest): Promise<CampaignRunResult> => {
     if (request.mode !== 'sync') {
       throw createHttpError(400, 'Only sync mode is supported');
     }
+    const campaign_id = request.campaign_id.trim();
+    const campaign = getCampaign(campaign_id);
+    if (!campaign) {
+      throw createHttpError(400, `Unknown campaign_id: ${campaign_id}`);
+    }
+    const as_of_block = await resolveAsOfBlock(campaign.chain_id, request.as_of_block);
 
     const results = await mapWithConcurrency(
       request.wallets,
@@ -243,8 +284,9 @@ export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
       async (wallet) => {
         const evaluation = await evaluateWallet({
           wallet,
-          campaign_id: request.campaign_id,
-          window: request.window
+          campaign_id,
+          window: request.window,
+          as_of_block
         });
 
         return {
@@ -257,7 +299,8 @@ export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
 
     return {
       results,
-      summary: summarizeResults(results)
+      summary: summarizeResults(results),
+      meta: { as_of_block }
     };
   };
 
@@ -283,3 +326,4 @@ export const createEvaluatorService = (deps: EvaluatorDependencies = {}) => {
 };
 
 export const evaluatorService = createEvaluatorService();
+

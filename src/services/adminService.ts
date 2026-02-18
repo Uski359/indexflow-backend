@@ -8,7 +8,7 @@ import {
   getAdminSettings,
   updateOracleEndpoint,
   updateProtocolParameters
-} from '../repositories/settingsRepository.js';
+} from '../infra/repositories/settingsRepository.js';
 
 export async function fetchAdminSettings(): Promise<AdminSettings> {
   return getAdminSettings();
@@ -37,3 +37,4 @@ export async function updateAdminOracle(url: string): Promise<AdminSettings> {
   }
   return updateOracleEndpoint(url);
 }
+
