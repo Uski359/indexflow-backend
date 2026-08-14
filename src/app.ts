@@ -13,6 +13,7 @@ import routes from './api/legacy/routes/index.js';
 import v1Routes from './api/v1/routes/v1.js';
 import transferRoutes from './api/legacy/routes/transfers.js';
 import faucetRoute from './api/legacy/routes/faucet.js';
+import { generatePolymarketPilotDataset } from './mock/mockData.js';
 
 const app = express();
 const FAUCET_PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
@@ -70,7 +71,45 @@ app.get('/', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'indexflow-backend',
-    docs: ['/health', '/api/transfers', '/api/transfers/recent']
+    docs: [
+      '/health',
+      '/api/transfers',
+      '/api/transfers/recent',
+      '/api/participants',
+      '/api/mock/polymarket-pilot'
+    ]
+  });
+});
+
+app.get('/api/participants', (_req, res) => {
+  try {
+    const pilotData = generatePolymarketPilotDataset();
+    res.json(pilotData);
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to serve pilot dataset');
+    res.status(500).json({ error: 'Failed to serve pilot dataset' });
+  }
+});
+
+app.get('/api/mock/polymarket-pilot', (_req, res) => {
+  const items = generatePolymarketPilotDataset();
+
+  res.json({
+    datasetName: 'polymarket-pilot',
+    generatedAt: new Date().toISOString(),
+    total: items.length,
+    items
+  });
+});
+
+app.get('/v1/mock/polymarket-pilot', (_req, res) => {
+  const items = generatePolymarketPilotDataset();
+
+  res.json({
+    datasetName: 'polymarket-pilot',
+    generatedAt: new Date().toISOString(),
+    total: items.length,
+    items
   });
 });
 
