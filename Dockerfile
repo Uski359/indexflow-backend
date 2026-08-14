@@ -4,15 +4,21 @@ WORKDIR /app
 
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
+# This Dockerfile should be built from the repository root with:
+# docker build -f indexflow-backend/Dockerfile -t indexflow-backend .
 
+# Copy monorepo files from root context
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+
+# Copy monorepo packages
+COPY packages ./packages
+COPY indexflow-backend ./indexflow-backend
+
+# Install dependencies with pnpm
 RUN pnpm install --frozen-lockfile
 
-COPY . .
-
-RUN pnpm run build
-
-RUN pnpm prune --production
+# Build the backend
+RUN pnpm --filter indexflow-backend run build
 
 EXPOSE 4000
-CMD ["node", "dist/server.js"]
+CMD ["node", "indexflow-backend/dist/server.js"]
