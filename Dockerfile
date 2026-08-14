@@ -4,11 +4,11 @@ WORKDIR /app
 
 RUN corepack enable
 
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
+# Copy package files (lock file may not exist in standalone repo, use wildcard)
+COPY package.json pnpm-lock.yaml* ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 # Copy source code
 COPY . .
@@ -23,10 +23,10 @@ WORKDIR /app
 RUN corepack enable
 
 # Copy package files
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml* ./
 
 # Install production dependencies only
-RUN pnpm install --prod --frozen-lockfile
+RUN pnpm install --prod
 
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
