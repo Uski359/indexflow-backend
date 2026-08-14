@@ -1,0 +1,7 @@
+export const ETHEREUM_MAINNET = {
+    id: 'ethereum',
+    network: 'mainnet',
+    rpcEnvKey: 'ETHEREUM_RPC',
+    tokenAddress: null, // TODO: set to Ethereum mainnet token address once deployed
+    deployBlock: null // TODO: set to Ethereum deployment block height
+};
