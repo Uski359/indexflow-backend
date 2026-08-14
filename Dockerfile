@@ -2,15 +2,17 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+RUN corepack enable
 
-RUN npm install
+COPY package.json pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN npm run build
+RUN pnpm run build
 
-RUN npm prune --production
+RUN pnpm prune --production
 
 EXPOSE 4000
 CMD ["node", "dist/server.js"]
