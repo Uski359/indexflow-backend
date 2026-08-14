@@ -1,24 +1,36 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+RUN corepack enable
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN pnpm run build
+
 FROM node:20-alpine
 
 WORKDIR /app
 
 RUN corepack enable
 
-# This Dockerfile should be built from the repository root with:
-# docker build -f indexflow-backend/Dockerfile -t indexflow-backend .
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
 
-# Copy monorepo files from root context
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+# Install production dependencies only
+RUN pnpm install --prod --frozen-lockfile
 
-# Copy monorepo packages
-COPY packages ./packages
-COPY indexflow-backend ./indexflow-backend
-
-# Install dependencies with pnpm
-RUN pnpm install --frozen-lockfile
-
-# Build the backend
-RUN pnpm --filter indexflow-backend run build
+# Copy built application from builder
+COPY --from=builder /app/dist ./dist
 
 EXPOSE 4000
-CMD ["node", "indexflow-backend/dist/server.js"]
+
+CMD ["node", "dist/server.js"]
